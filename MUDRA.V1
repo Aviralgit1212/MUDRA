@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mudra — Real-Time Sign Bridge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0E14;
+    --panel:#12161F;
+    --panel-2:#161B26;
+    --line:#232838;
+    --text:#F3F1EA;
+    --text-dim:#9AA1B2;
+    --sign:#4FD1C5;
+    --sign-dim:rgba(79,209,197,0.15);
+    --voice:#FF8A66;
+    --voice-dim:rgba(255,138,102,0.15);
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'IBM Plex Sans', sans-serif;
+    min-height:100vh;
+  }
+  h1,h2,h3{ font-family:'Space Grotesk', sans-serif; margin:0; }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+
+  header{
+    padding:28px 20px 18px; text-align:center;
+    border-bottom:1px solid var(--line);
+  }
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace; font-size:0.7rem; letter-spacing:3px;
+    color:var(--text-dim); text-transform:uppercase;
+  }
+  header h1{ font-size:2.4rem; font-weight:700; margin:6px 0 8px; letter-spacing:1px; }
+  header h1 span{ color:var(--sign); }
+  header p{ color:var(--text-dim); font-size:0.95rem; max-width:520px; margin:0 auto; line-height:1.5; }
+
+  .wrap{ max-width:1100px; margin:0 auto; padding:26px 16px 60px; }
+
+  .bridge-row{
+    display:grid; grid-template-columns: 1fr 46px 1fr; gap:0; align-items:stretch;
+  }
+  @media (max-width: 860px){
+    .bridge-row{ grid-template-columns: 1fr; }
+    .bridge-col{ display:none; }
+  }
+
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:18px; display:flex; flex-direction:column; gap:14px;
+  }
+  .panel-head{ display:flex; align-items:center; justify-content:space-between; }
+  .panel-title{ font-size:1rem; font-weight:600; letter-spacing:0.5px; }
+  .tag{
+    font-family:'IBM Plex Mono', monospace; font-size:0.65rem; padding:3px 8px;
+    border-radius:20px; letter-spacing:1px; text-transform:uppercase;
+  }
+  .tag.sign{ background:var(--sign-dim); color:var(--sign); }
+  .tag.voice{ background:var(--voice-dim); color:var(--voice); }
+
+  /* Bridge connector */
+  .bridge-col{ position:relative; display:flex; align-items:center; justify-content:center; }
+  .bridge-line{
+    width:2px; height:80%; background:linear-gradient(var(--sign), var(--voice));
+    opacity:0.25; position:relative;
+  }
+  .pulse-dot{
+    position:absolute; left:50%; top:0; width:10px; height:10px; border-radius:50%;
+    background:var(--sign); transform:translate(-50%,-50%); opacity:0;
+    box-shadow:0 0 12px 3px var(--sign);
+  }
+  .pulse-dot.flow-right{ animation:flowRight 900ms ease-in-out; }
+  .pulse-dot.flow-left{ animation:flowLeft 900ms ease-in-out; background:var(--voice); box-shadow:0 0 12px 3px var(--voice); }
+  @keyframes flowRight{
+    0%{ top:6%; opacity:1; } 100%{ top:94%; opacity:0; }
+  }
+  @keyframes flowLeft{
+    0%{ top:94%; opacity:1; } 100%{ top:6%; opacity:0; }
+  }
+
+  /* Camera panel */
+  .cam-shell{
+    position:relative; border-radius:10px; overflow:hidden; background:#000;
+    aspect-ratio:4/3; border:1px solid var(--line);
+  }
+  .cam-inner{ position:absolute; inset:0; transform:scaleX(-1); }
+  video{ width:100%; height:100%; object-fit:cover; opacity:0.85; }
+  canvas.overlay{ position:absolute; inset:0; width:100%; height:100%; }
+  .cam-status{
+    position:absolute; top:8px; left:8px; font-family:'IBM Plex Mono',monospace;
+    font-size:0.65rem; color:var(--text-dim); background:rgba(0,0,0,0.5);
+    padding:3px 8px; border-radius:6px; z-index:5;
+  }
+
+  .current-sign{
+    display:flex; align-items:baseline; gap:10px; padding:10px 0;
+    border-top:1px dashed var(--line); border-bottom:1px dashed var(--line);
+  }
+  .current-sign .label{ font-size:1.6rem; font-weight:700; color:var(--sign); min-height:1.9rem; }
+  .current-sign .conf{ font-family:'IBM Plex Mono',monospace; font-size:0.7rem; color:var(--text-dim); }
+
+  .sentence-box{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    padding:12px 14px; min-height:56px; font-size:1.05rem; line-height:1.5;
+  }
+  .sentence-box.voice-text{ color:var(--voice); }
+  .sentence-box.sign-text{ color:var(--sign); }
+  .sentence-box .placeholder{ color:var(--text-dim); font-size:0.9rem; }
+
+  .row{ display:flex; gap:8px; flex-wrap:wrap; }
+  button{
+    font-family:'IBM Plex Sans', sans-serif; font-weight:500; font-size:0.85rem;
+    padding:9px 16px; border-radius:8px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); cursor:pointer;
+    transition:all 0.15s ease;
+  }
+  button:hover{ border-color:var(--text-dim); }
+  button:active{ transform:scale(0.97); }
+  button.primary{ background:var(--sign); color:#06201d; border-color:var(--sign); font-weight:600; }
+  button.primary.voice-btn{ background:var(--voice); color:#301400; border-color:var(--voice); }
+  button.ghost{ background:transparent; }
+  button:disabled{ opacity:0.4; cursor:not-allowed; }
+  button.recording{ background:#E5484D; color:#fff; border-color:#E5484D; }
+
+  label.check{ display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-dim); }
+
+  /* Voice panel */
+  .caption-box{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    padding:16px; min-height:180px; font-size:1.15rem; line-height:1.6; color:var(--voice);
+    display:flex; align-items:flex-start;
+  }
+  .listen-viz{ display:flex; gap:3px; align-items:flex-end; height:22px; }
+  .listen-viz span{
+    width:3px; background:var(--voice); border-radius:2px; height:4px; opacity:0.4;
+  }
+  .listen-viz.active span{ animation:bar 1s ease-in-out infinite; opacity:1; }
+  .listen-viz span:nth-child(1){ animation-delay:0s; }
+  .listen-viz span:nth-child(2){ animation-delay:0.15s; }
+  .listen-viz span:nth-child(3){ animation-delay:0.3s; }
+  .listen-viz span:nth-child(4){ animation-delay:0.45s; }
+  .listen-viz span:nth-child(5){ animation-delay:0.2s; }
+  @keyframes bar{ 0%,100%{ height:4px; } 50%{ height:20px; } }
+
+  /* Training section */
+  .train-section{
+    margin-top:22px; background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--radius); padding:18px;
+  }
+  .train-grid{ display:grid; grid-template-columns: 1.2fr 1fr; gap:20px; margin-top:14px; }
+  @media (max-width:760px){ .train-grid{ grid-template-columns:1fr; } }
+
+  input[type=text]{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    padding:9px 12px; border-radius:8px; font-family:'IBM Plex Sans'; font-size:0.9rem;
+    width:100%;
+  }
+  input[type=range]{ width:100%; accent-color:var(--sign); }
+
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip{
+    font-size:0.75rem; padding:5px 10px; border-radius:20px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text-dim); cursor:pointer;
+  }
+  .chip:hover{ color:var(--text); border-color:var(--sign); }
+
+  .sample-list{ display:flex; flex-direction:column; gap:6px; margin-top:10px; max-height:220px; overflow-y:auto; }
+  .sample-item{
+    display:flex; justify-content:space-between; align-items:center;
+    background:var(--panel-2); padding:8px 12px; border-radius:8px; font-size:0.85rem;
+  }
+  .sample-item .count{ font-family:'IBM Plex Mono',monospace; color:var(--sign); font-size:0.8rem; }
+  .sample-item button{ padding:3px 8px; font-size:0.7rem; }
+
+  .hint{ font-size:0.78rem; color:var(--text-dim); line-height:1.5; }
+  .slider-row{ display:flex; align-items:center; gap:10px; }
+  .slider-row .val{ font-family:'IBM Plex Mono',monospace; font-size:0.75rem; color:var(--sign); width:34px; }
+
+  footer{
+    max-width:1100px; margin:0 auto; padding:0 16px 50px; color:var(--text-dim);
+    font-size:0.8rem; line-height:1.6;
+  }
+  footer h3{ color:var(--text); font-size:0.9rem; margin-bottom:6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">On-device · Real-time · No backend required</div>
+  <h1>Mu<span>d</span>ra</h1>
+  <p>A two-way bridge between sign and speech — trained on your own hands, right in the browser.</p>
+</header>
+
+<div class="wrap">
+
+  <div class="bridge-row">
+    <!-- SIGN PANEL -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Sign → Speech</div>
+        <div class="tag sign">Camera</div>
+      </div>
+
+      <div class="cam-shell">
+        <div class="cam-inner">
+          <video class="input_video" playsinline></video>
+          <canvas class="overlay" id="output_canvas"></canvas>
+        </div>
+        <div class="cam-status" id="camStatus">camera: starting…</div>
+      </div>
+
+      <div class="current-sign">
+        <div class="label" id="currentLabel">—</div>
+        <div class="conf mono" id="currentConf"></div>
+      </div>
+
+      <div class="sentence-box sign-text" id="signSentence">
+        <span class="placeholder">Recognized signs will build a sentence here…</span>
+      </div>
+
+      <div class="row">
+        <button class="primary" id="speakBtn">Speak sentence</button>
+        <button class="ghost" id="clearSignBtn">Clear</button>
+        <label class="check"><input type="checkbox" id="autoSpeak" checked> auto-speak each sign</label>
+      </div>
+    </div>
+
+    <!-- BRIDGE -->
+    <div class="bridge-col">
+      <div class="bridge-line">
+        <div class="pulse-dot" id="pulseDot"></div>
+      </div>
+    </div>
+
+    <!-- VOICE PANEL -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Speech → Captions</div>
+        <div class="tag voice">Mic</div>
+      </div>
+
+      <div class="caption-box" id="captionBox">
+        <span class="placeholder" style="color:var(--text-dim)">Captions of what's spoken will appear here for the signer to read…</span>
+      </div>
+
+      <div class="listen-viz" id="listenViz">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+
+      <div class="row">
+        <button class="primary voice-btn" id="micBtn">Start listening</button>
+        <button class="ghost" id="clearVoiceBtn">Clear</button>
+      </div>
+      <div class="hint" id="speechSupportHint"></div>
+    </div>
+  </div>
+
+  <!-- TRAINING -->
+  <div class="train-section">
+    <div class="panel-head">
+      <h2 style="font-size:1.1rem;">Train your signs</h2>
+      <div class="tag sign" id="totalSamplesTag">0 samples</div>
+    </div>
+    <p class="hint">Type a word, hold the record button while you hold the sign steady, and repeat the gesture a few times (8–15 samples per sign works well). Add at least 2 different signs before recognition kicks in.</p>
+
+    <div class="train-grid">
+      <div>
+        <input type="text" id="labelInput" placeholder="e.g. Hello, Thank you, Yes, Help…">
+        <div class="chips" id="suggestChips"></div>
+        <div class="row" style="margin-top:12px;">
+          <button class="primary" id="recordBtn" disabled>Hold to record</button>
+          <span class="hint mono" id="recordCount" style="align-self:center;">0 captured</span>
+        </div>
+
+        <div style="margin-top:16px;">
+          <div class="hint" style="margin-bottom:6px;">Sensitivity (higher = stricter match)</div>
+          <div class="slider-row">
+            <input type="range" id="sensSlider" min="4" max="30" value="16">
+            <span class="val mono" id="sensVal">1.6</span>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:16px;">
+          <button class="ghost" id="exportBtn">Export training data</button>
+          <button class="ghost" id="importBtnLabel">Import training data</button>
+          <input type="file" id="importInput" accept="application/json" style="display:none;">
+        </div>
+      </div>
+
+      <div>
+        <div class="hint" style="margin-bottom:4px;">Trained signs</div>
+        <div class="sample-list" id="sampleList">
+          <div class="hint">No signs trained yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <h3>How it works</h3>
+  <p>
+    MediaPipe extracts 21 hand landmarks per frame. Each frame is normalized against wrist position and palm size so it works regardless of distance from the camera, then compared against your recorded samples using a k-nearest-neighbours classifier — implemented directly here, not a black-box library. A rolling majority vote across recent frames filters out jitter before a sign is confirmed. Speech output uses the Web Speech API in both directions.
+    Camera and mic access need a secure context — if they don't start, try serving this file over <span class="mono">localhost</span> or HTTPS instead of opening it directly.
+  </p>
+</footer>
+
+<script type="importmap">
+{ "imports": {} }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+
+<script>
+(function(){
+
+  // ---------- Feature extraction ----------
+  function featureVector(landmarks){
+    const wrist = landmarks[0];
+    const ref = landmarks[9];
+    const scale = Math.hypot(ref.x - wrist.x, ref.y - wrist.y, (ref.z||0) - (wrist.z||0)) || 1e-6;
+    const vec = [];
+    for (const lm of landmarks){
+      vec.push((lm.x - wrist.x) / scale);
+      vec.push((lm.y - wrist.y) / scale);
+      vec.push(((lm.z||0) - (wrist.z||0)) / scale);
+    }
+    return vec;
+  }
+
+  function dist(a, b){
+    let sum = 0;
+    for (let i = 0; i < a.length; i++){ const d = a[i]-b[i]; sum += d*d; }
+    return Math.sqrt(sum);
+  }
+
+  // ---------- Training data (in-memory only) ----------
+  let trainingData = {}; // label -> array of feature vectors
+
+  function totalSamples(){
+    return Object.values(trainingData).reduce((s, arr) => s + arr.length, 0);
+  }
+
+  function renderSampleList(){
+    const el = document.getElementById('sampleList');
+    const labels = Object.keys(trainingData);
+    if (labels.length === 0){
+      el.innerHTML = '<div class="hint">No signs trained yet.</div>';
+    } else {
+      el.innerHTML = '';
+      labels.forEach(label => {
+        const row = document.createElement('div');
+        row.className = 'sample-item';
+        row.innerHTML = `<span>${label}</span><span class="count">${trainingData[label].length} samples</span>`;
+        const del = document.createElement('button');
+        del.textContent = 'remove';
+        del.onclick = () => { delete trainingData[label]; renderSampleList(); updateRecordEnabled(); };
+        row.appendChild(del);
+        el.appendChild(row);
+      });
+    }
+    document.getElementById('totalSamplesTag').textContent = totalSamples() + ' samples';
+    updateRecordEnabled();
+  }
+
+  function updateRecordEnabled(){
+    const input = document.getElementById('labelInput');
+    document.getElementById('recordBtn').disabled = input.value.trim().length === 0;
+  }
+
+  // suggestion chips
+  const suggestions = ['Hello','Thank you','Yes','No','Please','Sorry','Help','Water','Stop','Good'];
+  const chipsEl = document.getElementById('suggestChips');
+  suggestions.forEach(s => {
+    const chip = document.createElement('div');
+    chip.className = 'chip'; chip.textContent = s;
+    chip.onclick = () => { document.getElementById('labelInput').value = s; updateRecordEnabled(); };
+    chipsEl.appendChild(chip);
+  });
+
+  document.getElementById('labelInput').addEventListener('input', updateRecordEnabled);
+
+  // ---------- Recording (hold button) ----------
+  let isRecording = false;
+  let currentFeatureVec = null; // latest computed vector, updated every frame
+  let recordCountThisSession = 0;
+  let recordTimer = null;
+
+  const recordBtn = document.getElementById('recordBtn');
+  function startRecording(){
+    const label = document.getElementById('labelInput').value.trim();
+    if (!label) return;
+    isRecording = true;
+    recordCountThisSession = 0;
+    recordBtn.classList.add('recording');
+    recordBtn.textContent = 'Recording…';
+    recordTimer = setInterval(() => {
+      if (currentFeatureVec){
+        if (!trainingData[label]) trainingData[label] = [];
+        trainingData[label].push(currentFeatureVec.slice());
+        recordCountThisSession++;
+        document.getElementById('recordCount').textContent = recordCountThisSession + ' captured';
+        renderSampleList();
+      }
+    }, 150);
+  }
+  function stopRecording(){
+    isRecording = false;
+    clearInterval(recordTimer);
+    recordBtn.classList.remove('recording');
+    recordBtn.textContent = 'Hold to record';
+  }
+  recordBtn.addEventListener('pointerdown', startRecording);
+  recordBtn.addEventListener('pointerup', stopRecording);
+  recordBtn.addEventListener('pointerleave', () => { if (isRecording) stopRecording(); });
+
+  // sensitivity slider -> maxDist threshold
+  let maxDist = 1.6;
+  const sensSlider = document.getElementById('sensSlider');
+  const sensVal = document.getElementById('sensVal');
+  sensSlider.addEventListener('input', () => {
+    maxDist = sensSlider.value / 10;
+    sensVal.textContent = maxDist.toFixed(1);
+  });
+
+  // ---------- Export / Import ----------
+  document.getElementById('exportBtn').onclick = () => {
+    const blob = new Blob([JSON.stringify(trainingData)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'mudra-signs.json'; a.click();
+    URL.revokeObjectURL(url);
+  };
+  document.getElementById('importBtnLabel').onclick = () => document.getElementById('importInput').click();
+  document.getElementById('importInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        trainingData = Object.assign(trainingData, parsed);
+        renderSampleList();
+      } catch(err){ alert('Could not read that file.'); }
+    };
+    reader.readAsText(file);
+  });
+
+  // ---------- Classification + smoothing ----------
+  function classify(vec, k){
+    const all = [];
+    for (const label in trainingData){
+      for (const sample of trainingData[label]) all.push({label, d: dist(vec, sample)});
+    }
+    if (all.length === 0) return null;
+    all.sort((a,b) => a.d - b.d);
+    const top = all.slice(0, Math.min(k, all.length));
+    if (top[0].d > maxDist) return null;
+    const votes = {};
+    top.forEach(t => votes[t.label] = (votes[t.label]||0) + 1);
+    let best = null, bestCount = -1;
+    for (const l in votes) if (votes[l] > bestCount){ best = l; bestCount = votes[l]; }
+    return best;
+  }
+
+  const BUFFER_SIZE = 8;
+  let predBuffer = [];
+  let lastConfirmed = null;
+  let sentenceWords = [];
+
+  function pulse(direction){
+    const dot = document.getElementById('pulseDot');
+    dot.classList.remove('flow-right','flow-left');
+    void dot.offsetWidth; // reflow to restart animation
+    dot.classList.add(direction === 'right' ? 'flow-right' : 'flow-left');
+  }
+
+  function handlePrediction(label){
+    predBuffer.push(label);
+    if (predBuffer.length > BUFFER_SIZE) predBuffer.shift();
+
+    const counts = {};
+    predBuffer.forEach(p => { if (p) counts[p] = (counts[p]||0) + 1; });
+    let majority = null, majorityCount = 0;
+    for (const l in counts) if (counts[l] > majorityCount){ majority = l; majorityCount = counts[l]; }
+
+    const nonNullCount = predBuffer.filter(p => p !== null).length;
+    if (nonNullCount === 0){
+      lastConfirmed = null; // hand left frame — allow same sign to repeat next time
+      document.getElementById('currentLabel').textContent = '—';
+      document.getElementById('currentConf').textContent = '';
+      return;
+    }
+
+    if (majority){
+      document.getElementById('currentLabel').textContent = majority;
+      document.getElementById('currentConf').textContent = majorityCount + '/' + BUFFER_SIZE + ' frames';
+    }
+
+    if (majority && majorityCount >= Math.ceil(BUFFER_SIZE * 0.7) && majority !== lastConfirmed){
+      lastConfirmed = majority;
+      sentenceWords.push(majority);
+      renderSignSentence();
+      pulse('right');
+      if (document.getElementById('autoSpeak').checked) speak(majority);
+    }
+  }
+
+  function renderSignSentence(){
+    const box = document.getElementById('signSentence');
+    box.textContent = sentenceWords.join(' ');
+  }
+
+  document.getElementById('clearSignBtn').onclick = () => {
+    sentenceWords = [];
+    document.getElementById('signSentence').innerHTML = '<span class="placeholder">Recognized signs will build a sentence here…</span>';
+  };
+
+  document.getElementById('speakBtn').onclick = () => {
+    if (sentenceWords.length) speak(sentenceWords.join(' '));
+  };
+
+  function speak(text){
+    if (!('speechSynthesis' in window)) return;
+    const utter = new SpeechSynthesisUtterance(text);
+    speechSynthesis.speak(utter);
+  }
+
+  // ---------- MediaPipe Hands ----------
+  const videoElement = document.querySelector('.input_video');
+  const canvasElement = document.getElementById('output_canvas');
+  const canvasCtx = canvasElement.getContext('2d');
+  const camStatus = document.getElementById('camStatus');
+
+  const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+  hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.6 });
+
+  hands.onResults((results) => {
+    canvasElement.width = videoElement.videoWidth || 640;
+    canvasElement.height = videoElement.videoHeight || 480;
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0){
+      const lm = results.multiHandLandmarks[0];
+      drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color:'#4FD1C5', lineWidth:3});
+      drawLandmarks(canvasCtx, lm, {color:'#F3F1EA', lineWidth:1, radius:2});
+      currentFeatureVec = featureVector(lm);
+      if (!isRecording) handlePrediction(classify(currentFeatureVec, 3));
+    } else {
+      currentFeatureVec = null;
+      if (!isRecording) handlePrediction(null);
+    }
+  });
+
+  const cameraUtils = new Camera(videoElement, {
+    onFrame: async () => { await hands.send({image: videoElement}); },
+    width: 640, height: 480
+  });
+  cameraUtils.start().then(() => { camStatus.textContent = 'camera: live'; })
+    .catch(() => { camStatus.textContent = 'camera: blocked — check permissions / use HTTPS'; });
+
+  // ---------- Speech recognition (voice -> captions) ----------
+  const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const micBtn = document.getElementById('micBtn');
+  const captionBox = document.getElementById('captionBox');
+  const listenViz = document.getElementById('listenViz');
+  let listening = false;
+  let recognition = null;
+
+  if (!SpeechRecognitionCtor){
+    document.getElementById('speechSupportHint').textContent = 'Speech recognition isn\'t supported in this browser — try Chrome.';
+    micBtn.disabled = true;
+  } else {
+    recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-IN';
+
+    recognition.onresult = (event) => {
+      let finalText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++){
+        if (event.results[i].isFinal) finalText += event.results[i][0].transcript + ' ';
+      }
+      if (finalText.trim()){
+        captionBox.textContent = (captionBox.textContent.includes('Captions of') ? '' : captionBox.textContent) + finalText;
+        pulse('left');
+      }
+    };
+    recognition.onerror = () => { /* fail quietly, user can retry */ };
+    recognition.onend = () => { if (listening) recognition.start(); }; // keep-alive while toggled on
+
+    micBtn.onclick = () => {
+      listening = !listening;
+      if (listening){
+        recognition.start();
+        micBtn.textContent = 'Stop listening';
+        listenViz.classList.add('active');
+      } else {
+        recognition.stop();
+        micBtn.textContent = 'Start listening';
+        listenViz.classList.remove('active');
+      }
+    };
+  }
+
+  document.getElementById('clearVoiceBtn').onclick = () => {
+    captionBox.innerHTML = '<span class="placeholder" style="color:var(--text-dim)">Captions of what\'s spoken will appear here for the signer to read…</span>';
+  };
+
+  renderSampleList();
+})();
+</script>
+</body>
+</html>
